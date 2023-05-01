@@ -102,15 +102,16 @@
    process-file
    (append (list(first input-file-names)) (list(second input-file-names)) (list(third input-file-names)))
    (make-list 3 remove-from-file)))
+  
 
 
 
 
 
-(define (read-input response)
-  (display "> ")
-  (define input (regexp-split #px" +" (read-line (current-input-port) 'any)))
-  (either display read-input 
+;(define (read-input response)
+;  (display "> ")
+;  (define input (regexp-split #px" +" (read-line (current-input-port) 'any)))
+;  (either display read-input 
 
 
 
@@ -118,6 +119,10 @@
   (map
    generate-frequency
    input-file-contents))
+
+(with-output-to-file "hash-table.txt"
+  (lambda ()
+    (write frequencies)))
 
 
 
