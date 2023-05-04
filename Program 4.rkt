@@ -1,18 +1,20 @@
 #lang racket
 (require racket/port)
-(require pmap)
+(require data/either)
+(require data/monad)
 
 
 ; <--- Initial File Processing --->
 ; Opens input file, removes characters from file, converts string to uppercase, converts string to a list based on spaces
 (define (process-file filename remove-words)
-  (display "here ")
-  (regexp-split #px" +"
-   (remove-characters
-    (string-downcase
-     (apply string-append
-     (read-file filename)))
-    remove-words)))
+  (define file-contents (read-file filename))
+  (define split-contents
+    (regexp-split #px" +"
+                  (remove-characters
+                   (string-downcase
+                    (apply string-append file-contents))
+                   remove-words)))
+  (list split-contents (first file-contents)))
 
 
 ; Opening file
@@ -64,11 +66,9 @@
 
 ; Helper function to generate hash of frequency of word
 (define (generate-frequency file)
-  (let
-      ([file-hash (hash-create file (make-hash '()))])
-    (hash-frequency file-hash
-                    (hash-keys file-hash)
-                    (hash-sum (hash-values file-hash) 0))))
+  (define file-hash (hash-create (first file) (make-hash '())))
+  (define file-frequencies (hash-frequency file-hash (hash-keys file-hash) (hash-sum (hash-values file-hash) 0)))
+  (list file-frequencies (second file)))
 
 
 ; <--- String/Character Removal Processing --->
@@ -83,7 +83,7 @@
 (define remove-from-file
   (append
    '("\n" "?" "," "." "\"" "!" "-" ":" ";" "(" ")")
-   (string-cushion (process-file "stop_words_english.txt" '("\n")) '())))
+   (string-cushion (first (process-file "stop_words_english.txt" '("\n"))) '())))
 
 
 ; <--- Applying Processing to Input Files --->
@@ -96,23 +96,12 @@
 
 
 ; TODO - have this process all files and not just first 3
-; Opening up each of the input files and removing appropriate characters/strings from them
+(display "Processing file contents - this may take some time...")
 (define input-file-contents
   (map
    process-file
-   (append (list(first input-file-names)) (list(second input-file-names)) (list(third input-file-names)))
+   (list(first input-file-names) (second input-file-names) (third input-file-names))
    (make-list 3 remove-from-file)))
-  
-
-
-
-
-
-;(define (read-input response)
-;  (display "> ")
-;  (define input (regexp-split #px" +" (read-line (current-input-port) 'any)))
-;  (either display read-input 
-
 
 
 (define frequencies
@@ -120,21 +109,51 @@
    generate-frequency
    input-file-contents))
 
-(with-output-to-file "hash-table.txt"
-  (lambda ()
-    (write frequencies)))
+
+(define (user-input message)
+  (display "Search for...\n> ")
+  (define input (regexp-split #px" +" (string-downcase (read-line (current-input-port) 'any))))
+  (either display user-input (process-input input)))
 
 
+(define (process-input input)
+  (do
+      [matched-words <- (match-words input)]
+      [ranked-results <- (rank-results matched-words)]
+      [ouptut-results <- (display-results ranked-results)]
+    (success input)))
 
 
+; for each file, send to find words and pass it the input and frequencies of that file
+; return list of sum of frequencies and first lines in file (sum line)
+(define (match-words input)
+  (success
+  (map
+   find-words
+   (make-list (length frequencies) input)
+   frequencies
+   (make-list (length frequencies) 0)
+   (make-list (length frequencies) 0))))
 
 
+; accept file and list of words as input
+; find words in hash, add it to sum
+; once reached end of input, return sum with first line of file
+(define (find-words input file sum matches)
+  (if (empty? input)
+      (success (list sum matches (second file)))
+      (if (hash-has-key? (first file) (first input))
+          (find-words (rest input) file (+ sum (hash-ref (first file) (first input))) (+ matches 1))
+          (find-words (rest input) file sum matches))))
 
 
-; save hash to a file
-; somehow associate hashes to their corresponding file
-; check if hash file exists
-;     -if not, generate new hash and save it
-;     -if yes, continue
-; ask user for input (implement monads)
-; query hashes to find relevant results, and display them
+; sort a list of sums (according to criteria)
+; return a list of 
+(define (rank-results input)
+  (display input)
+  (success "hello world"))
+
+
+; given a list of strings, display them formatted
+(define (display-results input)
+  (success "beans world"))
