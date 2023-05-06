@@ -7,21 +7,38 @@
 ; <--- Initial File Processing --->
 ; Opens input file, removes characters from file, converts string to uppercase, converts string to a list based on spaces
 (define (process-file filename remove-words)
-  (define file-contents (read-file filename))
-  (define split-contents
-    (regexp-split #px" +"
-                  (remove-characters
-                   (string-downcase
-                    (apply string-append file-contents))
-                   remove-words)))
-  (list split-contents (first file-contents)))
+  (do
+      [file-contents <- (read-file filename)]
+      [first-line <- (get-first-line file-contents)]
+      [split-contents <- (parse-contents file-contents remove-words)]
+    (list split-contents first-line)))
 
 
 ; Opening file
 (define (read-file filename)
-  (port->lines
-     (open-input-file filename
-                       #:mode 'text) #:line-mode 'return))
+  (if (file-exists? filename)
+      (success
+       (port->lines
+        (open-input-file filename
+                        #:mode 'text) #:line-mode 'return))
+      (failure (string-append filename " does not exist!\n"))))
+
+
+(define (get-first-line contents)
+  (if (empty? contents)
+      (failure "File has no content!\n")
+      (success (first (regexp-split "\n" (first contents))))))
+
+
+(define (parse-contents file-contents remove-words)
+  (if (empty? remove-words)
+      (failure "Pass in valid list of words/characters to remove\n")
+      (success
+       (regexp-split #px" +"
+                     (remove-characters
+                      (string-downcase
+                       (first file-contents))
+                      remove-words)))))
 
 
 ; Parameterized list of characters (chars) to remove from file (file)
@@ -59,12 +76,11 @@
         (hash-frequency all-hash (rest keys) sum))))
         
 
-; Function for calculating logbase10
 (define (log10 n)
   (/ (log n) (log 10)))
 
 
-; Helper function to generate hash of frequency of word
+; Generate hash of frequency of word
 (define (generate-frequency file)
   (define file-hash (hash-create (first file) (make-hash '())))
   (define file-frequencies (hash-frequency file-hash (hash-keys file-hash) (hash-sum (hash-values file-hash) 0)))
@@ -81,9 +97,13 @@
 
 ; Removes list of special characters and words to remove from input files
 (define remove-from-file
-  (append
-   '("\n" "?" "," "." "\"" "!" "-" ":" ";" "(" ")")
-   (string-cushion (first (process-file "stop_words_english.txt" '("\n"))) '())))
+  (if (failure? (process-file "stop_words_english.txt" '("\n")))
+      (begin
+        (display (from-failure #t (process-file "stop_words_english.txt" '("\n"))))
+        '("\n" "?" "," "." "\"" "!" "-" ":" ";" "(" ")"))
+      (append
+       '("\n" "?" "," "." "\"" "!" "-" ":" ";" "(" ")")
+       (string-cushion (first (process-file "stop_words_english.txt" '("\n"))) '()))))
 
 
 ; <--- Applying Processing to Input Files --->
@@ -95,65 +115,82 @@
    (directory-list "Files/")))
 
 
-; TODO - have this process all files and not just first 3
-(display "Processing file contents - this may take some time...")
+(display "Processing file contents - this may take some time...\n")
 (define input-file-contents
   (map
    process-file
-   (list(first input-file-names) (second input-file-names) (third input-file-names))
-   (make-list 3 remove-from-file)))
+   input-file-names
+   (make-list (length input-file-names) remove-from-file)))
+
+
+; Removes and displays failures in file processing accordingly
+(define (remove-failures existing-list new-list)
+  (if (empty? existing-list)
+      new-list
+      (if (failure? (first existing-list))
+          (begin
+            (display (from-failure #t (first existing-list)))
+            (remove-failures (rest existing-list) new-list))
+          (remove-failures (rest existing-list) (append new-list (list (first existing-list)))))))
+
+(define formatted-input-file-contents
+  (remove-failures input-file-contents '()))
 
 
 (define frequencies
   (map
    generate-frequency
-   input-file-contents))
+   formatted-input-file-contents))
 
 
-(define (user-input message)
+; <--- User input --->
+(define (user-input)
   (display "Search for...\n> ")
   (define input (regexp-split #px" +" (string-downcase (read-line (current-input-port) 'any))))
-  (either display user-input (process-input input)))
+  (process-input input)
+  (user-input))
 
 
 (define (process-input input)
-  (do
-      [matched-words <- (match-words input)]
-      [ranked-results <- (rank-results matched-words)]
-      [ouptut-results <- (display-results ranked-results)]
-    (success input)))
+  (define matched-words (match-words input))
+  (define ranked-results (rank-results matched-words))
+  (display-results ranked-results))
 
 
-; for each file, send to find words and pass it the input and frequencies of that file
-; return list of sum of frequencies and first lines in file (sum line)
+; <--- Ranking of results --->
+; Matches input words to input files
 (define (match-words input)
-  (success
   (map
    find-words
    (make-list (length frequencies) input)
    frequencies
    (make-list (length frequencies) 0)
-   (make-list (length frequencies) 0))))
+   (make-list (length frequencies) 0)))
 
 
-; accept file and list of words as input
-; find words in hash, add it to sum
-; once reached end of input, return sum with first line of file
+; Finds matching words in each file and sums up frequencies and tallies # of matches
 (define (find-words input file sum matches)
   (if (empty? input)
-      (success (list sum matches (second file)))
+      (list matches sum (second file))
       (if (hash-has-key? (first file) (first input))
           (find-words (rest input) file (+ sum (hash-ref (first file) (first input))) (+ matches 1))
           (find-words (rest input) file sum matches))))
 
 
-; sort a list of sums (according to criteria)
-; return a list of 
+; ranks results in descending order by matches, and ascending order by frequency
 (define (rank-results input)
-  (display input)
-  (success "hello world"))
+  (sort input
+        (lambda (first-lst second-lst)
+          (cond ((> (first first-lst) (first second-lst)) #t)
+                ((< (first first-lst) (first second-lst)) #f)
+                (else (< (second first-lst) (second second-lst)))))))
 
 
-; given a list of strings, display them formatted
 (define (display-results input)
-  (success "beans world"))
+  (for-each (lambda (result)
+              (when (> (first result) 0)
+                (display (string-append "--" (third result) "\n"))))
+            input))
+
+
+(define start-program (user-input))
